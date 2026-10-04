@@ -13,6 +13,7 @@
 ## Global constraints
 
 - No persistent server or automatic wake-up; waiting/default and detached/background runs only.
+- Codex initial and resume commands include global `--no-daemon` before `exec`.
 - No shell interpolation, approval bypass, silent model fallback, automatic retries or uncontrolled resumption of interactive sessions.
 - Default workers are read-only. Record commit metadata; don't modify caller checkout.
 - Task lease: 30 seconds; heartbeat: 5 seconds; default timeout: 1,200 seconds.
