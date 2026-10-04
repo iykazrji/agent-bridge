@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
 import { readFileSync, openSync, closeSync, mkdirSync } from 'node:fs';
-import { spawn } from 'node:child_process';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Store } from './store.ts';
 import { runWorker } from './worker.ts';
+import { readHead } from './git.ts';
 import type { Provider } from './types.ts';
 
 const defaultHome = join(homedir(), '.local', 'share', 'agent-bridge');
@@ -35,8 +35,7 @@ function requireValue(values: Record<string, unknown>, name: string): string {
 function noPositionals(parsed: { positionals: string[] }, command: string): void { if (parsed.positionals.length) throw new TypeError(`${command} does not accept positional arguments: ${parsed.positionals.join(' ')}`); }
 function exactlyOnePositional(parsed: { positionals: string[] }, command: string): string { if (parsed.positionals.length !== 1) throw new TypeError(`${command} requires exactly one task ID`); return parsed.positionals[0]!; }
 function currentHead(repo: string): string | null {
-  try { return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null; }
-  catch { return null; }
+  return readHead(repo);
 }
 
 export async function main(argv = process.argv.slice(2), env = process.env): Promise<number> {
@@ -139,11 +138,11 @@ Examples:
       try { store.reconcile(); output(store.listTasks({ workflow: parsed.values.workflow as string | undefined, repo: parsed.values.repo as string | undefined, sessionId: parsed.values.session as string | undefined, status: parsed.values.status as any }).filter(task => !parsed.values.active || task.status === 'queued' || task.status === 'running')); } finally { store.close(); } return 0;
     }
     if (command === 'context' || command === 'inbox') {
-      const parsed = parse(argv.slice(1), { session: str }); if (parsed.positionals.length > 1) throw new TypeError(`${command} accepts at most one session ID`); const id = (parsed.values.session as string | undefined) ?? parsed.positionals[0]; if (!id) throw new TypeError(`${command} requires --session or a session ID`);
+      const parsed = parse(argv.slice(1), { session: str }); if (parsed.positionals.length > 1) throw new TypeError(`${command} accepts at most one session ID`); if (parsed.values.session && parsed.positionals.length) throw new TypeError(`${command} accepts either --session or a positional session ID`); const id = (parsed.values.session as string | undefined) ?? parsed.positionals[0]; if (!id) throw new TypeError(`${command} requires --session or a session ID`);
       const store = new Store(homeOf(parsed.values, env)); try { store.reconcile(); output(command === 'context' ? store.context(id) : store.inbox(id)); } finally { store.close(); } return 0;
     }
     if (command === 'ack') {
-      const parsed = parse(argv.slice(1), { session: str, message: str }); if (parsed.positionals.length > 1) throw new TypeError('ack accepts at most one message ID'); const id = requireValue(parsed.values, 'session'), message = parsed.values.message as string | undefined ?? parsed.positionals[0]; if (!message) throw new TypeError('ack requires --message or message ID'); const store = new Store(homeOf(parsed.values, env)); try { output({ acknowledged: store.ackMessage(id, message) }); } finally { store.close(); } return 0;
+      const parsed = parse(argv.slice(1), { session: str, message: str }); if (parsed.positionals.length > 1) throw new TypeError('ack accepts at most one message ID'); if (parsed.values.message && parsed.positionals.length) throw new TypeError('ack accepts either --message or a positional message ID'); const id = requireValue(parsed.values, 'session'), message = parsed.values.message as string | undefined ?? parsed.positionals[0]; if (!message) throw new TypeError('ack requires --message or message ID'); const store = new Store(homeOf(parsed.values, env)); try { output({ acknowledged: store.ackMessage(id, message) }); } finally { store.close(); } return 0;
     }
     if (command === 'send') {
       const parsed = parse(argv.slice(1), { from: str, to: str, message: str }); noPositionals(parsed, 'send'); const store = new Store(homeOf(parsed.values, env)); try { output(store.sendMessage(requireValue(parsed.values, 'from'), requireValue(parsed.values, 'to'), requireValue(parsed.values, 'message'))); } finally { store.close(); } return 0;

@@ -100,5 +100,7 @@ test('inbox is explicitly acknowledged and invalid command exits nonzero', async
   const x = setup(); const reg = await run(['session', 'register', '--provider', 'claude', '--repo', x.repo, '--workflow', 'w'], x.env); const session = JSON.parse(reg.out);
   assert.equal((await run(['not-a-command'], x.env)).code, 2);
   const inbox = await run(['inbox', '--session', session.id], x.env); assert.deepEqual(JSON.parse(inbox.out), []);
-  const doctor = await run(['doctor'], x.env); assert.equal(doctor.code, 0, doctor.err);
+  const doctor = await run(['doctor'], x.env); assert.equal(doctor.code, 0, doctor.err + doctor.out);
+  const duplicateContextSelector = await run(['context', '--session', session.id, 'other'], x.env); assert.notEqual(duplicateContextSelector.code, 0);
+  const duplicateAckSelector = await run(['ack', '--session', session.id, '--message', 'one', 'two'], x.env); assert.notEqual(duplicateAckSelector.code, 0);
 });

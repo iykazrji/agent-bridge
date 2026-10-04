@@ -1,15 +1,10 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync, appendFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { dirname } from 'node:path';
 import { Store } from './store.ts';
 import { buildProviderCommand, extractProviderNativeId, parseProviderEvents } from './providers.ts';
+import { readHead } from './git.ts';
 import type { Task } from './types.ts';
-
-function head(repo: string): string | undefined {
-  try { return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || undefined; }
-  catch { return undefined; }
-}
 
 function promptFor(task: Task, store: Store): string {
   const context = store.context(task.workerSessionId);
@@ -57,7 +52,7 @@ export async function runWorker(home: string, taskId: string): Promise<void> {
     const fullPrompt = promptFor(activeTask, store);
     writeFileSync(`${activeTask.artifactDir}/prompt.txt`, fullPrompt, { mode: 0o600 });
     store.addEvent(activeTask.id, 'worker.started', { provider: activeTask.provider, workflow: activeTask.workflow });
-    const startedHead = head(activeTask.repo) ?? activeTask.commitSha ?? undefined;
+    const startedHead = readHead(activeTask.repo) ?? activeTask.commitSha ?? undefined;
     const session = store.getSession(activeTask.workerSessionId)!;
     if (!session.managed) throw new Error('refusing to resume an unmanaged session');
     if (task.parentTaskId && !session.nativeId) throw new Error('follow-up requires a native provider session ID');
@@ -102,7 +97,7 @@ export async function runWorker(home: string, taskId: string): Promise<void> {
     const parsed = parseProviderEvents(activeTask.provider, raw);
     nativeId = parsed.nativeId ?? nativeId;
     writeFileSync(activeTask.resultPath, parsed.result, { mode: 0o600 });
-    const finishedHead = head(activeTask.repo) ?? startedHead;
+    const finishedHead = readHead(activeTask.repo) ?? startedHead;
     if (finishedHead && startedHead && finishedHead !== startedHead) appendFileSync(activeTask.logPath, `\n[bridge] Repository HEAD changed during the task: ${startedHead} -> ${finishedHead}\n`);
     const updated = store.finishTask(activeTask.id, token, { status: 'succeeded', result: parsed.result, nativeId, commitSha: startedHead, logPath: activeTask.logPath });
     terminalCommitted = true;

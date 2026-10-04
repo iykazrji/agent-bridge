@@ -6,11 +6,13 @@ Codex commands use the local documented global read-only/approval flags before `
 
 The Store initialization now installs `busy_timeout` before requesting WAL mode and retries transient SQLite busy/locked responses while enabling WAL. Follow-ups reject worker sessions with interrupted history, and lease heartbeat/completion use an exclusive deadline consistent with reconciliation. Internal worker claims cannot overwrite existing artifacts; an unclaimable worker reports an error. Context and inbox inspection reconcile expired work, and task output compares current HEAD with the recorded review commit.
 
+Commit metadata uses a shared bounded Git helper. If PATH resolves to a Git executable that cannot launch on macOS, it retries with `/usr/bin/git`; normal Git errors such as a non-repository result do not trigger fallback. It does not modify PATH.
+
 ## Verification
 
 Run under Node 24.10 because the login-shell default is Node 18:
 
-- `PATH=/Users/iyk/.nvm/versions/node/v24.10.0/bin:$PATH npm test` — 20 passed, 0 failed. This includes hermetic fake-provider subprocesses for wait/background/resume, provider and process errors, missing executables, timeout and descendant cleanup, CLI validation, 24 concurrent fresh database opens, lease boundaries, follow-up fencing, durable inbox behavior, and duplicate-worker artifact preservation.
+- `PATH=/Users/iyk/.nvm/versions/node/v24.10.0/bin:$PATH npm test` — 23 passed, 0 failed. This includes hermetic fake-provider subprocesses for wait/background/resume, provider and process errors, missing executables, timeout and descendant cleanup, CLI validation, Git fallback/non-repository behavior, 24 concurrent fresh database opens, lease boundaries, follow-up fencing, durable inbox behavior, and duplicate-worker artifact preservation.
 - `PATH=/Users/iyk/.nvm/versions/node/v24.10.0/bin:$PATH npm run typecheck` — passed with `noUnusedLocals` and `noUnusedParameters` enabled.
 
 No live-provider smoke test was run as part of this task; the coordinator owns that check. Doctor checks bounded CLI version availability and explicitly leaves authentication unchecked.
