@@ -30,6 +30,18 @@ function provider(value: Provider): Provider {
   return value;
 }
 
+function enableWal(db: DatabaseSync): void {
+  const delay = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
+  for (let attempt = 0; ; attempt++) {
+    try { db.exec('PRAGMA journal_mode=WAL;'); return; }
+    catch (error) {
+      const code = typeof error === 'object' && error !== null && 'errcode' in error ? Number((error as { errcode: unknown }).errcode) : 0;
+      if ((code !== 5 && code !== 6) || attempt >= 49) throw error;
+      Atomics.wait(delay, 0, 0, 100);
+    }
+  }
+}
+
 function rowToSession(row: Record<string, unknown> | undefined): Session | null {
   if (!row) return null;
   return { id: String(row.id), provider: row.provider as Provider, repo: String(row.repo), workflow: String(row.workflow), role: row.role === null ? null : String(row.role), nativeId: row.native_id === null ? null : String(row.native_id), managed: Number(row.managed) === 1, createdAt: Number(row.created_at), lastSeenAt: Number(row.last_seen_at) };
@@ -54,8 +66,10 @@ export class Store {
     mkdirSync(home, { recursive: true, mode: 0o700 });
     this.#home = resolve(home);
     this.#now = now;
-    this.#db = new DatabaseSync(join(home, 'bridge.sqlite'));
-    this.#db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL;');
+    this.#db = new DatabaseSync(join(home, 'bridge.sqlite'), { timeout: 5000 });
+    this.#db.exec('PRAGMA busy_timeout=5000;');
+    enableWal(this.#db);
+    this.#db.exec('PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;');
     this.#db.exec(`
       CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY, provider TEXT NOT NULL, repo TEXT NOT NULL, workflow TEXT NOT NULL,
@@ -148,6 +162,7 @@ export class Store {
         const parentWorker = this.#session(parent.workerSessionId);
         if (!parentWorker?.managed) throw new Error('parent task has no managed worker session');
         if (parentWorker.provider !== p) throw new Error('follow-up provider must match worker session');
+        if (this.#db.prepare("SELECT 1 FROM tasks WHERE worker_session_id=? AND status='interrupted' LIMIT 1").get(parentWorker.id)) throw new Error('follow-up cannot resume a worker session with interrupted task history');
         worker = parentWorker;
       } else {
         const id = randomUUID(), time = this.#now();
@@ -192,7 +207,7 @@ export class Store {
   heartbeat(id: string, token: string): number {
     return this.#transaction(() => {
       const now = this.#now(), leaseUntil = now + LEASE_MS;
-      const result = this.#db.prepare("UPDATE tasks SET lease_until=? WHERE id=? AND status='running' AND owner_token=? AND lease_until>=?").run(leaseUntil, id, token, now);
+      const result = this.#db.prepare("UPDATE tasks SET lease_until=? WHERE id=? AND status='running' AND owner_token=? AND lease_until>?").run(leaseUntil, id, token, now);
       if (Number(result.changes) !== 1) throw new Error('task lease is expired or owned by another worker');
       return leaseUntil;
     });
@@ -201,7 +216,7 @@ export class Store {
   finishTask(id: string, token: string, finish: FinishTaskInput): Task {
     return this.#transaction(() => {
       const task = this.#task(id), now = this.#now();
-      if (!task || task.status !== 'running' || task.ownerToken !== token || task.leaseUntil === null || task.leaseUntil < now) throw new Error('task lease is expired or owned by another worker');
+      if (!task || task.status !== 'running' || task.ownerToken !== token || task.leaseUntil === null || task.leaseUntil <= now) throw new Error('task lease is expired or owned by another worker');
       const result = finish.result ?? null, error = finish.error ?? null;
       this.#db.prepare('UPDATE tasks SET status=?,result=?,error=?,finished_at=?,owner_token=NULL,lease_until=NULL,native_id=?,commit_sha=COALESCE(?,commit_sha),artifact_dir=COALESCE(?,artifact_dir),result_path=COALESCE(?,result_path),log_path=COALESCE(?,log_path) WHERE id=? AND owner_token=?').run(finish.status, result, error, now, finish.nativeId ?? null, finish.commitSha ?? null, finish.artifactDir ?? null, finish.resultPath ?? null, finish.logPath ?? null, id, token);
       if (finish.nativeId) this.#db.prepare('UPDATE sessions SET native_id=?,last_seen_at=? WHERE id=? AND managed=1').run(finish.nativeId, now, task.workerSessionId);

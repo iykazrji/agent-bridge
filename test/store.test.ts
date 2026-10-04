@@ -3,9 +3,12 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { Store } from '../src/store.ts';
 
 const day = 86_400_000;
+const execFileAsync = promisify(execFile);
 
 function fixture() {
   const home = mkdtempSync(join(tmpdir(), 'agent-bridge-store-'));
@@ -13,6 +16,18 @@ function fixture() {
   const open = () => new Store(home, () => now);
   return { home, open, advance: (ms: number) => { now += ms; }, cleanup: () => rmSync(home, { recursive: true, force: true }) };
 }
+
+test('concurrent first opens initialize a fresh SQLite home without lock failures', async () => {
+  const f = fixture();
+  try {
+    const script = "import { Store } from './src/store.ts'; const store = new Store(process.env.BRIDGE_TEST_HOME); store.close();";
+    for (let round = 0; round < 3; round++) {
+      const home = join(f.home, `fresh-${round}`);
+      const opens = Array.from({ length: 8 }, () => execFileAsync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', script], { cwd: process.cwd(), env: { ...process.env, BRIDGE_TEST_HOME: home } }));
+      await Promise.all(opens);
+    }
+  } finally { f.cleanup(); }
+});
 
 test('durable completion and inbox delivery survive reopen and reconciliation across days', () => {
   const f = fixture();
@@ -64,6 +79,20 @@ test('claims serialize across Store connections and expired leases interrupt exa
     assert.equal(b.reconcile(), 0);
     assert.equal(a.inbox(requester.id).length, 1);
     a.close(); b.close();
+  } finally { f.cleanup(); }
+});
+
+test('lease deadline expires at the exact boundary and blocks heartbeat and completion', () => {
+  const f = fixture();
+  try {
+    const store = f.open();
+    const task = store.createTask({ provider: 'claude', repo: process.cwd(), workflow: 'deadline', prompt: 'work' });
+    const claim = store.claimTask(task.id)!;
+    f.advance(claim.leaseUntil - Date.UTC(2026, 0, 1));
+    assert.throws(() => store.heartbeat(task.id, claim.token));
+    assert.equal(store.reconcile(), 1);
+    assert.throws(() => store.finishTask(task.id, claim.token, { status: 'succeeded', result: 'late' }));
+    store.close();
   } finally { f.cleanup(); }
 });
 
@@ -121,6 +150,21 @@ test('queued tasks expire once; follow-up reuses a completed managed worker and 
     assert.equal(followup.workerSessionId, original.workerSessionId);
     assert.throws(() => store.createTask({ provider: 'claude', repo: process.cwd(), workflow: 'follow', requesterSessionId: requester.id, parentTaskId: original.id, prompt: 'duplicate' }));
     assert.throws(() => store.createTask({ provider: 'claude', repo: process.cwd(), workflow: 'follow', requesterSessionId: requester.id, parentTaskId: followup.id, prompt: 'premature' }));
+    store.close();
+  } finally { f.cleanup(); }
+});
+
+test('an interrupted later follow-up prevents resuming an older completed worker session', () => {
+  const f = fixture();
+  try {
+    const store = f.open();
+    const first = store.createTask({ provider: 'claude', repo: process.cwd(), workflow: 'orphan', prompt: 'first' });
+    const firstClaim = store.claimTask(first.id)!;
+    store.finishTask(first.id, firstClaim.token, { status: 'succeeded', result: 'ok', nativeId: 'thread' });
+    const second = store.createTask({ provider: 'claude', repo: process.cwd(), workflow: 'orphan', requesterSessionId: first.requesterSessionId, parentTaskId: first.id, prompt: 'second' });
+    const secondClaim = store.claimTask(second.id)!;
+    f.advance(secondClaim.leaseUntil - Date.UTC(2026, 0, 1)); store.reconcile();
+    assert.throws(() => store.createTask({ provider: 'claude', repo: process.cwd(), workflow: 'orphan', requesterSessionId: first.requesterSessionId, parentTaskId: first.id, prompt: 'must not resume old thread' }), /interrupted task history/);
     store.close();
   } finally { f.cleanup(); }
 });
