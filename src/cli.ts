@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { Store } from './store.ts';
 import { runWorker } from './worker.ts';
 import { readHead } from './git.ts';
+import { discoverSessions } from './discovery.ts';
 import type { Provider } from './types.ts';
 
 const defaultHome = join(homedir(), '.local', 'share', 'agent-bridge');
@@ -46,6 +47,8 @@ export async function main(argv = process.argv.slice(2), env = process.env): Pro
 
   session register --provider codex|claude --repo PATH --workflow NAME [--role ROLE] [--native-id ID]
   session list [--workflow NAME] [--repo PATH]
+  session discover [--provider codex|claude] [--repo PATH] [--active] [--limit N]
+  session start --provider codex|claude --repo PATH (--from SESSION | --workflow NAME) (--prompt TEXT | --prompt-file PATH) [--model NAME] [--timeout MS] [--background]
   submit --provider codex|claude --repo PATH (--from SESSION | --workflow NAME) (--prompt TEXT | --prompt-file PATH) [--model NAME] [--timeout MS] [--background]
   follow-up TASK_ID (--prompt TEXT | --prompt-file PATH) [--model NAME] [--timeout MS] [--background]
   status TASK_ID | result TASK_ID | list [--active] [--workflow NAME] [--repo PATH] [--session ID] [--status STATE]
@@ -91,13 +94,21 @@ Examples:
       noPositionals(parsed, 'session list');
       try { output(store.listSessions({ workflow: parsed.values.workflow as string | undefined, repo: parsed.values.repo as string | undefined })); } finally { store.close(); } return 0;
     }
-    if (command === 'submit' || command === 'follow-up') {
-      const positionalTask = command === 'follow-up' ? subcommand : undefined;
-      const opts: Record<string, typeof bool | typeof str> = command === 'follow-up'
+    if (command === 'session' && subcommand === 'discover') {
+      const parsed = parse(tail, { provider: str, repo: str, active: bool, limit: str, 'codex-home': str, 'claude-config-dir': str }); noPositionals(parsed, 'session discover');
+      const limit = parsed.values.limit === undefined ? undefined : Number(parsed.values.limit);
+      const store = new Store(homeOf(parsed.values, env));
+      try { const result = await discoverSessions({ provider: parsed.values.provider === undefined ? undefined : providerOf(parsed.values.provider), repo: parsed.values.repo as string | undefined, active: parsed.values.active as boolean | undefined, limit, home: homeOf(parsed.values, env), codexHome: parsed.values['codex-home'] as string | undefined, claudeConfigDir: parsed.values['claude-config-dir'] as string | undefined, env, registrations: store.listSessions() }); output(result); return Object.values(result.sources).some(source => source.ok) ? 0 : 1; }
+      finally { store.close(); } return 0;
+    }
+    const submitCommand = command === 'session' && subcommand === 'start' ? 'submit' : command;
+    if (submitCommand === 'submit' || submitCommand === 'follow-up') {
+      const positionalTask = submitCommand === 'follow-up' ? subcommand : undefined;
+      const opts: Record<string, typeof bool | typeof str> = submitCommand === 'follow-up'
         ? { model: str, prompt: str, 'prompt-file': str, background: bool, timeout: str }
         : { provider: str, repo: str, workflow: str, from: str, model: str, prompt: str, 'prompt-file': str, background: bool, timeout: str, role: str };
-      const parsed = parse(command === 'follow-up' ? tail : [subcommand, ...tail].filter((part): part is string => part !== undefined), opts);
-      noPositionals(parsed, command);
+      const parsed = parse(submitCommand === 'follow-up' ? tail : [command === 'session' ? undefined : subcommand, ...tail].filter((part): part is string => part !== undefined), opts);
+      noPositionals(parsed, submitCommand);
       const prompt = promptOf(parsed.values); const store = new Store(homeOf(parsed.values, env));
       let createdTaskId = '';
       try {
