@@ -1,0 +1,33 @@
+# Native session discovery and session creation
+
+User-approved extension: expose existing local Claude and Codex conversations to either harness, and let either harness start a new worker session when needed. Keep commands on demand and preserve the existing ownership rules.
+
+## Contract
+
+- `session discover [--provider codex|claude] [--repo PATH] [--active] [--limit N] [--home PATH]` returns JSON with `sessions`, per-provider `sources`, `warnings`, and `truncated` information. Default provider selection is both; default limit is 50 with an upper bound of 200. No transcript content is returned; titles/previews are bounded metadata. Default includes stored/discoverable sessions, not only bridge registrations.
+- Each record includes provider, native ID, title, repository/cwd, observed status, native status, status source, timestamp when available, and matching bridge session IDs/workflows. Never auto-register or acquire an existing session. Never infer running from recent file changes.
+- Status is running, idle, waiting, completed, failed, or unknown. `--active` selects confirmed running/idle/waiting sessions. Missing live status is reported as unknown and as a source limitation; an empty filtered list must not be presented as proof no Codex sessions are active.
+- Repository filter is exact canonical cwd (not fuzzy workflow membership). Native results are deduplicated by provider + native ID. Do not deduplicate across providers. Sort by normalized timestamp descending, then provider/native ID for stable ties; keep the newest duplicate. Codex updatedAt is Unix seconds; normalize Claude timestamps from ISO/milliseconds. Limit applies after filters; paginate Codex metadata with a bounded cap and mark truncation when there could be more matches.
+- `session start` is an alias of `submit`, with exactly the same arguments, wait/background behavior, permissions, result format and native-session persistence. Both harnesses may target either provider. It starts a fresh managed worker, not a new desktop window. Existing `follow-up` remains the way to continue a managed session.
+- Existing `session list` continues to mean bridge registrations. `context` continues to mean a registered workflow. Discovery of an unrelated native conversation grants visibility, not ownership or automatic permission to resume it.
+- Native source locations must be consistent across harnesses: optional `--codex-home PATH` / `--claude-config-dir PATH` override `<bridgeHome>/discovery.json` fields `codexHome` / `claudeConfigDir`, which override inherited provider environment/defaults. Discovery reads this configuration but never writes it. Source diagnostics report effective configured locations. Validate configuration and modify only the metadata subprocess environment. The coordinator will configure the detected local Codex home for this installation, outside Git.
+
+## Provider integration evidence
+
+Claude Code 2.1.289 supports `claude agents --json --all`: it returns active interactive sessions and active/completed background sessions. Rows have `sessionId`, `cwd`, `name`, `kind`, `startedAt`, plus `status` for interactive and `state` for background. Observed `busy`, `idle`, `blocked`, and `failed`. Map busy/running to running; blocked/waiting to waiting; idle to idle; known completed/stopped/exited to completed; failed to failed; preserve unfamiliar statuses as unknown. This is not an archive of every historical interactive chat.
+
+Codex 0.160 supports a short-lived `codex --no-daemon app-server --stdio` process. Send JSONL `initialize` with `{clientInfo:{name:'agent_bridge_discovery',version:'0.1.0'}}`, await its response, notify `initialized`, then request `thread/list` with cursor/limit, sortKey updated_at, and useStateDbOnly true. Include documented sourceKinds to cover CLI, IDE, appServer, exec, unknown and subagent sources. Do not send thread/start/resume/fork or any turn methods. Close/terminate the owned temporary process after reading metadata; no listener or daemon remains. The inspected existing daemon's `app-server proxy` did not respond, so do not rely on it or claim live Codex status from it.
+
+The ephemeral metadata process reports stored threads as `notLoaded`. Map this to unknown: another app/runtime may be executing them. Source diagnostics must explicitly say live status is unavailable from this query. Return exact native IDs and useful titles/repo/timestamps anyway. thread/list supports sourceKinds, cwd and pagination; results include id/name/preview/cwd/updatedAt/status/model metadata. Official reference: https://learn.chatgpt.com/docs/app-server.
+
+## Implementation task
+
+Own new `src/discovery.ts`, `test/discovery.test.ts`, `test/fixtures/fake-discovery.*`, and scoped `src/cli.ts` changes. Existing worker/store behavior is unchanged. Export typed discovery records and a small discovery function. Use installed CLI executable names via PATH and inherited CODEX_HOME/Claude configuration. Use Node primitives only; no runtime dependencies.
+
+Subprocesses must have bounded deadlines/output sizes, drain stderr, handle spawn/stdin/protocol failures, and terminate only owned processes/groups with escalation and cleanup. Use incremental JSONL buffering; asynchronous notifications can precede responses. Never assume each stdout chunk is one message. JSON-RPC error replies and a provider's malformed response produce explicit source errors, not successful empty lists. Return other provider results when one fails. Bound pagination, detect repeated cursors, apply exact filters before limit, and label truncation honestly.
+
+Join only explicit native ID/provider matches with bridge registrations (read via Store.listSessions); expose workflows as metadata, not automatic relevance. No duplicate registration or schema migration is needed.
+
+Test-first requirements: fake providers on hermetic PATH, no real models. Cover Claude's two row shapes and status mappings; Codex initialize/notification/list RPC sequence, split JSONL chunks and pagination; exact cwd filters and provider-aware ID dedupe; default limit/active filter/truncation; unavailable/malformed/hanging providers with partial results and process cleanup; discovery does not mutate registration count; session start uses the existing submit behavior and captures native ID. Reject unknown/conflicting/extra CLI arguments. Run typecheck and the full suite. Report in docs/session-discovery-report.md and commit only owned files.
+
+Coordinator will update README/skill/design, run read-only live discovery and a fixture-backed session-start smoke test, review the implementation, and push the private repository. Live discovery must not invoke a model or expose full transcripts.

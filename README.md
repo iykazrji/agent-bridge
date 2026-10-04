@@ -40,6 +40,18 @@ Use the absolute path to this checkout in another repository. The portable skill
 
 A workflow groups related assignments in one repository. A session is a conversation. A task is one assignment in that conversation. Delegation records both the requesting session and its worker session so results have a destination.
 
+Either harness can discover existing local conversations, including ones started outside the bridge:
+
+```sh
+node src/cli.ts session discover
+node src/cli.ts session discover --repo /absolute/path/to/repo
+node src/cli.ts session discover --provider claude --active
+```
+
+Discovery returns metadata and explicit matches to bridge sessions/workflows. Claude's CLI exposes active interactive sessions and active/completed background sessions, not a full archive of every historical chat. Codex discovery queries stored thread metadata through a temporary stdio process that exits after the request. It reports live status as unknown when it cannot establish what another Codex runtime is executing. Check the returned source diagnostics; an empty `--active` result does not prove that no Codex conversations are running.
+
+Both harnesses should use the same provider homes. Optional `codexHome` and `claudeConfigDir` fields in `<AGENT_BRIDGE_HOME>/discovery.json` select stable sources; the default bridge home is described below. For a one-off override, append `--codex-home PATH` or `--claude-config-dir PATH` to discovery. Without configured overrides, provider environment variables/defaults apply. The bridge never edits provider configuration or starts a persistent server for discovery.
+
 Register your initiating conversation and retain its returned ID:
 
 ```sh
@@ -60,6 +72,22 @@ node src/cli.ts submit \
 ```
 
 Submission waits by default. Add `--background` to receive a task ID immediately. Use `--prompt-file /path/to/request.md` instead of `--prompt` for a longer brief.
+
+`session start` is an alias for `submit` with the same flags. It makes the new-session action explicit:
+
+```sh
+node src/cli.ts session start \
+  --provider codex --model gpt-6-astra \
+  --repo /absolute/path/to/repo --from SESSION_ID \
+  --prompt 'Review the current checkout and return findings only.'
+
+node src/cli.ts session start \
+  --provider claude --repo /absolute/path/to/repo \
+  --from SESSION_ID --prompt 'Read the project documentation and summarize open questions.' \
+  --background
+```
+
+These are managed worker conversations, not new desktop windows. A discovered external session remains externally owned; use `follow-up` only for a bridge-managed worker.
 
 Use task and session IDs from JSON responses:
 
@@ -91,10 +119,10 @@ Workers maintain leases while running. After an interruption, the next bridge in
 ## First-version boundaries
 
 - Background completion does not wake an idle conversation. The initiating agent checks at workflow checkpoints or waits for its result.
-- Discovery covers registered bridge sessions. It does not scan all desktop/cloud chats.
+- `session list` covers bridge registrations; `session discover` queries the supported local providers. It does not enumerate every remote/cloud chat or expose full transcripts.
 - The caller prepares the checkout for a review. The bridge records commit metadata; it does not fetch a PR or create an isolated worktree. Avoid changing the checkout during a review. Uncommitted edits are not uniquely identified by a commit SHA.
 - Workers are configured for read-only work. Codex uses its read-only sandbox. Claude exposes Read/Grep/Glob through its harness; trusted local configuration and hooks still apply. This is not an OS sandbox for untrusted repositories.
 - Documents, images, web access, and connectors depend on the worker's configured tools. Desktop-tool parity is not implied.
 - No automatic GitHub comments, fixes, merges, retries, or model substitutions.
 
-See [design](docs/DESIGN.md), [implementation plan](docs/PLAN.md), [provider contracts](docs/PROVIDERS.md), and [verification results](docs/VERIFICATION.md).
+See [design](docs/DESIGN.md), [implementation plan](docs/PLAN.md), [provider contracts](docs/PROVIDERS.md), [initial verification](docs/VERIFICATION.md), and [session discovery verification](docs/SESSION-DISCOVERY-VERIFICATION.md).
