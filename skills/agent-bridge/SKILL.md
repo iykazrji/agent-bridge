@@ -9,7 +9,7 @@ Use the bridge when the user requests work from the other harness or when contin
 
 ## Locate and register
 
-Find the bridge checkout from the user's supplied path or `AGENT_BRIDGE_ROOT`. Run `node /absolute/path/to/agent-bridge/src/cli.ts --help` for the installed command contract. Both harnesses must use the same `AGENT_BRIDGE_HOME` (default `~/.local/share/agent-bridge`). Run `doctor` if setup is uncertain.
+Find the bridge checkout from the user's supplied path or `AGENT_BRIDGE_ROOT`. Check `node --version` first: the bridge requires Node 24.10+. If a shell resolves an older system Node, select the checkout's `.nvmrc` version with the available version manager; retain that Node executable's absolute path for later calls, since separate shell invocations may reset PATH. Run that Node executable with `/absolute/path/to/agent-bridge/src/cli.ts --help` for the installed command contract. Both harnesses must use the same `AGENT_BRIDGE_HOME` (default `~/.local/share/agent-bridge`). Run `doctor` if setup is uncertain.
 
 Register your conversation with your provider, canonical repository path, an explicit workflow name (such as `pr-142`), and role. Keep the returned bridge session ID in your working context. Supply a native conversation ID only if the harness actually exposes it; otherwise leave it unset. Reuse your bridge session ID on continuation rather than creating a new identity at every checkpoint.
 

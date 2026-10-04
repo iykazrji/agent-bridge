@@ -66,12 +66,19 @@ Use task and session IDs from JSON responses:
 ```sh
 node src/cli.ts status TASK_ID
 node src/cli.ts result TASK_ID
+node src/cli.ts list --active
 node src/cli.ts context --session SESSION_ID
 node src/cli.ts inbox --session SESSION_ID
+node src/cli.ts ack --session SESSION_ID --message MESSAGE_ID
+node src/cli.ts send --from SESSION_ID --to PEER_SESSION_ID --message 'Please check the retry behavior.'
 node src/cli.ts follow-up TASK_ID --prompt 'Explain the first finding in more detail.'
 ```
 
-The inbox retains messages until explicit acknowledgment; reading it never discards results. See `--help` for message and acknowledgment arguments. Follow-ups reuse the managed conversation, workflow, and original requester. They cannot run concurrently in the same worker session.
+The inbox retains messages until explicit acknowledgment; reading it never discards results. Follow-ups reuse the managed conversation, workflow, and original requester. They cannot run concurrently in the same worker session. An interrupted worker session cannot be resumed through an older task either; start a new assignment after checking the interruption.
+
+Commands return JSON (help is text). Waiting submission returns one final JSON document; background submission returns one task document immediately. `result` and `status` include `currentHead` and `commitReviewStatus` (`current`, `changed`, or `unavailable`) to compare the checkout against the reviewed commit. Use `--timeout 120000` for a two-minute task deadline; values are milliseconds. Append `--home PATH` after the command to select a state directory for that invocation.
+
+`doctor` checks Node, SQLite initialization, and provider executable versions. It does not call a model or verify model access. Node 24 may print its experimental SQLite warning on stderr; JSON remains on stdout.
 
 ## What persists
 
@@ -90,4 +97,4 @@ Workers maintain leases while running. After an interruption, the next bridge in
 - Documents, images, web access, and connectors depend on the worker's configured tools. Desktop-tool parity is not implied.
 - No automatic GitHub comments, fixes, merges, retries, or model substitutions.
 
-See [design](docs/DESIGN.md), [implementation plan](docs/PLAN.md), and [provider contracts](docs/PROVIDERS.md).
+See [design](docs/DESIGN.md), [implementation plan](docs/PLAN.md), [provider contracts](docs/PROVIDERS.md), and [verification results](docs/VERIFICATION.md).
