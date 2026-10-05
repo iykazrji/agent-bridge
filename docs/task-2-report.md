@@ -12,8 +12,8 @@ Commit metadata uses a shared bounded Git helper. If PATH resolves to a Git exec
 
 Run under Node 24.10 because the login-shell default is Node 18:
 
-- `PATH=/Users/iyk/.nvm/versions/node/v24.10.0/bin:$PATH npm test` — 23 passed, 0 failed. This includes hermetic fake-provider subprocesses for wait/background/resume, provider and process errors, missing executables, timeout and descendant cleanup, CLI validation, Git fallback/non-repository behavior, 24 concurrent fresh database opens, lease boundaries, follow-up fencing, durable inbox behavior, and duplicate-worker artifact preservation.
-- `PATH=/Users/iyk/.nvm/versions/node/v24.10.0/bin:$PATH npm run typecheck` — passed with `noUnusedLocals` and `noUnusedParameters` enabled.
+- `npm test` — 23 passed, 0 failed. This includes hermetic fake-provider subprocesses for wait/background/resume, provider and process errors, missing executables, timeout and descendant cleanup, CLI validation, Git fallback/non-repository behavior, 24 concurrent fresh database opens, lease boundaries, follow-up fencing, durable inbox behavior, and duplicate-worker artifact preservation.
+- `npm run typecheck` — passed with `noUnusedLocals` and `noUnusedParameters` enabled.
 
 No live-provider smoke test was run as part of this task; the coordinator owns that check. Doctor checks bounded CLI version availability and explicitly leaves authentication unchecked.
 

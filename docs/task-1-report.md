@@ -37,7 +37,7 @@ events(taskId: string): TaskEvent[]
 
 Using the installed Node 24.10.0 binary (the login shell default was Node 18.16.0):
 
-- `PATH=/Users/iyk/.nvm/versions/node/v24.10.0/bin:$PATH npm test` — 6 tests passed, 0 failed.
-- `PATH=/Users/iyk/.nvm/versions/node/v24.10.0/bin:$PATH npm run typecheck` — passed.
+- `npm test` — 6 tests passed, 0 failed.
+- `npm run typecheck` — passed.
 
 Tests use temporary on-disk databases and injected clocks. They cover completion/inbox persistence through day 1/day 2/day 7/day 40 reopens, acknowledgement retention, two-connection claim competition, heartbeat and late-finish fencing, one-time lease and queued-startup expiry, managed-session native ID updates, follow-up reuse/busy rejection, recipient-only acknowledgement, workflow/repository validation and context isolation, direct messages, and persisted events.
